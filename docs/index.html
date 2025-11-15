@@ -1,92 +1,110 @@
-<script>
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzNZLBvqFgLVI_Y8oE4mxTVbv1HLn5T84GGrBRMOwv_TLc-jbL369IGnm_JEUOdjA9t/exec";
-
-(function attachForm(){
-  let attempts = 0;
-  const max = 40;
-  const tryOnce = () => {
-    attempts++;
-    let formList = Array.from(document.querySelectorAll('form'));
-    let form = formList.find(f => f.querySelector('input[type="email"]') || f.querySelector('textarea')) || formList[0];
-
-    if (!form) {
-      if (attempts < max) return setTimeout(tryOnce, 200);
-      console.warn('WPS attach: no form found');
-      return;
-    }
-
-    if (form.__wpsAttached) return;
-    form.__wpsAttached = true;
-
-    const status = document.createElement('div');
-    status.style.marginTop = '12px';
-    status.style.fontSize = '14px';
-    form.appendChild(status);
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const inputs = Array.from(form.querySelectorAll('input, textarea'));
-      const getBy = (keys, type) => {
-        for (const k of keys) {
-          let el = form.querySelector(`[name="${k}"]`);
-          if (el) return el.value.trim();
-        }
-        if (type === 'email') {
-          let el = form.querySelector('input[type="email"]');
-          if (el) return el.value.trim();
-        }
-        for (const el of inputs) {
-          const ph = (el.placeholder||'').toLowerCase();
-          const id = (el.id||'').toLowerCase();
-          const al = (el.getAttribute('aria-label')||'').toLowerCase();
-          for (const k of keys) {
-            if (ph.includes(k) || id.includes(k) || al.includes(k)) return (el.value||'').trim();
-          }
-        }
-        return '';
-      };
-
-      const payload = {
-        user_name: getBy(['user_name','name','fullname','full_name','your name']),
-        user_email: getBy(['user_email','email','your email'],'email'),
-        message: getBy(['message','body','comment','description'])
-      };
-
-      console.info('WPS form payload →', payload);
-      status.style.color='black'; status.textContent='Sending...';
-
-      try {
-        const data = new URLSearchParams();
-        data.append('user_name', payload.user_name);
-        data.append('user_email', payload.user_email);
-        data.append('message', payload.message);
-
-        const res = await fetch(SCRIPT_URL, {
-          method: 'POST',
-          headers: {'Content-Type':'application/x-www-form-urlencoded'},
-          body: data.toString()
-        });
-
-        const text = await res.text();
-        let json = null;
-        try { json = JSON.parse(text); } catch(e){}
-
-        if (res.ok && json && json.status === 'success') {
-          status.style.color='green';
-          status.textContent='Thanks — we received your message.';
-          form.reset();
-        } else {
-          status.style.color='red';
-          status.textContent='Error sending message.';
-          console.error('Apps Script resp', res.status, text);
-        }
-      } catch (err) {
-        status.style.color='red';
-        status.textContent='Network error.';
-        console.error('Network err', err);
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>White Penguin Solutions</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script defer="defer" src="static/js/main.60c295cb.js"></script>
+    <link href="static/css/main.168a84df.css" rel="stylesheet" />
+    <style>
+      /* tiny styles for fallback contact widget */
+      #wps-fallback {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        width: 320px;
+        max-width: calc(100% - 36px);
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(2,6,23,0.08);
+        padding: 12px;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        z-index: 99999;
       }
-    });
-  };
-  tryOnce();
-})();
-</script>
+      #wps-fallback h4 { margin: 0 0 8px 0; font-size:16px; }
+      #wps-fallback label { display:block; font-size:13px; margin-top:6px; color:#334155; }
+      #wps-fallback input, #wps-fallback textarea { width:100%; padding:8px; margin-top:6px; border:1px solid #e6eefb; border-radius:8px; font-size:14px; }
+      #wps-fallback button { margin-top:10px; width:100%; padding:9px; border-radius:8px; background:#0ea5e9; color:white; border: none; font-weight:600; }
+      #wps-fallback .wps-status { margin-top:8px; font-size:13px; }
+      #wps-fallback .close { position:absolute; right:8px; top:8px; cursor:pointer; color:#94a3b8; }
+      @media (max-width:420px){ #wps-fallback { right:10px; bottom:10px; width:92%; } }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <!-- FALLBACK contact widget (bypasses React) -->
+    <div id="wps-fallback" aria-hidden="false">
+      <span class="close" onclick="document.getElementById('wps-fallback').style.display='none'">✕</span>
+      <h4>Contact White Penguin</h4>
+
+      <form id="wps-fallback-form">
+        <label>
+          Name
+          <input name="user_name" type="text" placeholder="Your name" required />
+        </label>
+
+        <label>
+          Email
+          <input name="user_email" type="email" placeholder="you@example.com" required />
+        </label>
+
+        <label>
+          Message
+          <textarea name="message" rows="4" placeholder="Tell us about your project" required></textarea>
+        </label>
+
+        <button type="submit">Send message</button>
+        <div class="wps-status" id="wps-fallback-status" aria-live="polite"></div>
+      </form>
+    </div>
+
+    <script>
+      // === EDIT: your Apps Script exec URL ===
+      const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzNZLBvqFgLVI_Y8oE4mxTVbv1HLn5T84GGrBRMOwv_TLc-jbL369IGnm_JEUOdjA9t/exec";
+
+      // Submit handler (urlencoded to avoid preflight)
+      (function(){
+        const form = document.getElementById('wps-fallback-form');
+        const status = document.getElementById('wps-fallback-status');
+        form.addEventListener('submit', async function(e){
+          e.preventDefault();
+          status.style.color = 'black';
+          status.textContent = 'Sending...';
+          const fd = new FormData(form);
+          const data = new URLSearchParams();
+          data.append('user_name', fd.get('user_name') || '');
+          data.append('user_email', fd.get('user_email') || '');
+          data.append('message', fd.get('message') || '');
+          try {
+            const res = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: data.toString()
+            });
+            const text = await res.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch(e){ json = null; }
+            if (res.ok && json && json.status === 'success') {
+              status.style.color = 'green';
+              status.textContent = 'Thanks! We received your message.';
+              form.reset();
+            } else {
+              status.style.color = 'red';
+              status.textContent = 'Could not send — try again later.';
+              console.error('Apps Script response:', res.status, text);
+            }
+          } catch (err) {
+            status.style.color = 'red';
+            status.textContent = 'Network error — try again later.';
+            console.error('Network error sending contact:', err);
+          }
+        });
+      })();
+    </script>
+
+    <!-- Keep any injected React hooks below (optional) -->
+    <!-- previous injected script may remain or be replaced by this fallback approach -->
+  </body>
+</html>
