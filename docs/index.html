@@ -1,1 +1,95 @@
-<head><script defer="defer" src="static/js/main.308d43c8.js"></script><link href="static/css/main.168a84df.css" rel="stylesheet"></head><div id="root"></div>
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>White Penguin Solutions</title>
+    <script defer="defer" src="static/js/main.308d43c8.js"></script>
+    <link href="static/css/main.168a84df.css" rel="stylesheet" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <!--
+      Contact form handler injection for Google Apps Script webhook.
+      Replace YOUR_SCRIPT_URL_HERE (below) with your Web App URL (the /exec link).
+    -->
+    <script>
+      const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbye2dWXgtUWVV0R8eR0EXU4HLKf5hvBg3tya8ngLTWBWIQUR5d0M5MuM_dZXlSGeZzf/exec";
+
+      // Wait for React to mount its UI then hook into the contact form rendered by React
+      document.addEventListener("DOMContentLoaded", () => {
+        // small delay to let React mount (1500ms is safe for this bundle)
+        setTimeout(() => {
+          // Attempt to find a contact form rendered by React.
+          // If your React form uses a specific id/class, update the selector below (e.g. '#contact-form').
+          const form =
+            document.querySelector("form") ||
+            document.getElementById("contact-form") ||
+            document.querySelector("[data-contact-form]");
+
+          if (!form) {
+            console.warn("Contact form not found — contact handler not attached.");
+            return;
+          }
+
+          // Add a status element at the end of the form
+          let statusBox = form.querySelector(".wps-status-box");
+          if (!statusBox) {
+            statusBox = document.createElement("div");
+            statusBox.className = "wps-status-box";
+            statusBox.style.marginTop = "12px";
+            statusBox.style.fontSize = "14px";
+            form.appendChild(statusBox);
+          }
+
+          form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            // Grab fields by common names. If your form uses different field names,
+            // change these selectors to match (e.g. [name='name'] or .name-input)
+            const get = (name) => {
+              const el = form.querySelector(`[name="${name}"]`);
+              return el ? el.value.trim() : "";
+            };
+
+            const payload = {
+              user_name: get("user_name") || get("name") || "",
+              user_email: get("user_email") || get("email") || "",
+              message: get("message") || get("body") || "",
+            };
+
+            statusBox.style.color = "black";
+            statusBox.textContent = "Sending...";
+            try {
+              const res = await fetch(SCRIPT_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+              const json = await res.json();
+              if (json && json.status === "success") {
+                statusBox.style.color = "green";
+                statusBox.textContent =
+                  "Thanks — we received your message. We will get back to you shortly.";
+                // reset only known fields
+                (form.querySelector(`[name="user_name"]`) || form.querySelector(`[name="name"]`))?.value && (form.querySelector(`[name="user_name"]`) || form.querySelector(`[name="name"]`).value = "");
+                (form.querySelector(`[name="user_email"]`) || form.querySelector(`[name="email"]`))?.value && (form.querySelector(`[name="user_email"]`) || form.querySelector(`[name="email"]`).value = "");
+                (form.querySelector(`[name="message"]`) || form.querySelector(`[name="body"]`))?.value && (form.querySelector(`[name="message"]`) || form.querySelector(`[name="body"]`).value = "");
+              } else {
+                statusBox.style.color = "red";
+                statusBox.textContent = "Error sending message. Try again later.";
+                console.error("Apps Script response:", json);
+              }
+            } catch (err) {
+              statusBox.style.color = "red";
+              statusBox.textContent = "Network error. Try again later.";
+              console.error(err);
+            }
+          });
+        }, 1500);
+      });
+    </script>
+  </body>
+</html>
