@@ -144,7 +144,7 @@ export default function App() {
               <label>Message<textarea placeholder="Project brief or query" rows="5" /></label>
               <div className="form-footer">
                 <button type="submit" className="btn-primary">Send message</button>
-                <div className="muted small"></div>
+                
               </div>
             </form>
           </div>
