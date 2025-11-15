@@ -17,7 +17,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => {
-      // locate the contact form rendered by React
+      // find candidate form (most likely contact card)
       let form =
         document.querySelector("form") ||
         document.getElementById("contact-form") ||
@@ -27,40 +27,92 @@
         console.warn("Contact form not found — contact handler not attached.");
         return;
       }
-
       if (form.__wpsAttached) return;
       form.__wpsAttached = true;
 
-      // status element
+      // add status box
       const statusBox = document.createElement("div");
       statusBox.style.marginTop = "12px";
       statusBox.style.fontSize = "14px";
       form.appendChild(statusBox);
 
-      // helper to get field value
-      const getVal = (name) => {
-        const el = form.querySelector(`[name="${name}"]`);
-        return el ? el.value.trim() : "";
-      };
+      // helper: collect value by many heuristics
+      function findFieldValue(keys, typeHint) {
+        // try by name attributes
+        for (const k of keys) {
+          const el = form.querySelector(`[name="${k}"]`);
+          if (el && el.value !== undefined) return el.value.trim();
+        }
+        // try type=email for email
+        if (typeHint === "email") {
+          const el = form.querySelector('input[type="email"]');
+          if (el && el.value !== undefined) return el.value.trim();
+        }
+        // try placeholders or aria-label or id
+        const inputs = Array.from(form.querySelectorAll("input, textarea"));
+        for (const el of inputs) {
+          const ph = (el.getAttribute("placeholder") || "").toLowerCase();
+          const al = (el.getAttribute("aria-label") || "").toLowerCase();
+          const id = (el.id || "").toLowerCase();
+          for (const k of keys) {
+            const kl = k.toLowerCase();
+            if (ph.includes(kl) || al.includes(kl) || id.includes(kl)) {
+              return el.value ? el.value.trim() : "";
+            }
+          }
+        }
+        return null;
+      }
+
+      function guessByOrder() {
+        // fallback: assume first text input = name, first email or second input = email, first textarea = message
+        const inputs = Array.from(form.querySelectorAll("input"));
+        const textInputs = inputs.filter(i => i.type === "text" || i.type === "search" || !i.type);
+        const emailInput = inputs.find(i => i.type === "email") || inputs[1] || inputs[0];
+        const textarea = form.querySelector("textarea");
+        return {
+          name: textInputs[0] ? (textInputs[0].value || "").trim() : "",
+          email: emailInput ? (emailInput.value || "").trim() : "",
+          message: textarea ? (textarea.value || "").trim() : ""
+        };
+      }
 
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
 
-        const payload = {
-          user_name: getVal("user_name") || getVal("name") || "",
-          user_email: getVal("user_email") || getVal("email") || "",
-          message: getVal("message") || getVal("body") || ""
-        };
+        // first, try common keys
+        const nameKeys = ["user_name", "name", "fullName", "fullname", "your_name"];
+        const emailKeys = ["user_email", "email", "your_email"];
+        const messageKeys = ["message", "body", "user_message", "comments"];
+
+        let name = findFieldValue(nameKeys, "text");
+        let email = findFieldValue(emailKeys, "email");
+        let message = findFieldValue(messageKeys, "text");
+
+        // if any missing, try more heuristics or order-based guess
+        if (!name || !email || !message) {
+          const guessed = guessByOrder();
+          name = name || guessed.name;
+          email = email || guessed.email;
+          message = message || guessed.message;
+        }
+
+        // final safety: empty string instead of null
+        name = name || "";
+        email = email || "";
+        message = message || "";
+
+        // DEBUG: log what we're sending (open console to inspect)
+        console.info("WPS form payload →", { name, email, message });
 
         statusBox.style.color = "black";
         statusBox.textContent = "Sending...";
 
         try {
-          // build urlencoded body to avoid CORS preflight
           const urlEncoded = new URLSearchParams();
-          urlEncoded.append("user_name", payload.user_name);
-          urlEncoded.append("user_email", payload.user_email);
-          urlEncoded.append("message", payload.message);
+          urlEncoded.append("user_name", name);
+          urlEncoded.append("user_email", email);
+          urlEncoded.append("message", message);
 
           const res = await fetch(SCRIPT_URL, {
             method: "POST",
@@ -68,18 +120,15 @@
             body: urlEncoded.toString()
           });
 
-          // fetch will follow redirects; parse returned body
           const text = await res.text();
-          // try parse JSON if possible
-          let json;
-          try { json = JSON.parse(text); } catch (err) { json = null; }
+          let json = null;
+          try { json = JSON.parse(text); } catch (err) { /* not JSON */ }
 
           if (res.ok && json && json.status === "success") {
             statusBox.style.color = "green";
             statusBox.textContent = "Thanks — we received your message. We will get back to you shortly.";
             form.reset();
           } else {
-            // no JSON success — show returned text for debugging
             statusBox.style.color = "red";
             statusBox.textContent = "Error sending message. Try again later.";
             console.error("Apps Script response:", res.status, text);
