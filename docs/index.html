@@ -1,1 +1,92 @@
-<head><script defer="defer" src="static/js/main.60c295cb.js"></script><link href="static/css/main.168a84df.css" rel="stylesheet"></head><div id="root"></div>
+<script>
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzNZLBvqFgLVI_Y8oE4mxTVbv1HLn5T84GGrBRMOwv_TLc-jbL369IGnm_JEUOdjA9t/exec";
+
+(function attachForm(){
+  let attempts = 0;
+  const max = 40;
+  const tryOnce = () => {
+    attempts++;
+    let formList = Array.from(document.querySelectorAll('form'));
+    let form = formList.find(f => f.querySelector('input[type="email"]') || f.querySelector('textarea')) || formList[0];
+
+    if (!form) {
+      if (attempts < max) return setTimeout(tryOnce, 200);
+      console.warn('WPS attach: no form found');
+      return;
+    }
+
+    if (form.__wpsAttached) return;
+    form.__wpsAttached = true;
+
+    const status = document.createElement('div');
+    status.style.marginTop = '12px';
+    status.style.fontSize = '14px';
+    form.appendChild(status);
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const inputs = Array.from(form.querySelectorAll('input, textarea'));
+      const getBy = (keys, type) => {
+        for (const k of keys) {
+          let el = form.querySelector(`[name="${k}"]`);
+          if (el) return el.value.trim();
+        }
+        if (type === 'email') {
+          let el = form.querySelector('input[type="email"]');
+          if (el) return el.value.trim();
+        }
+        for (const el of inputs) {
+          const ph = (el.placeholder||'').toLowerCase();
+          const id = (el.id||'').toLowerCase();
+          const al = (el.getAttribute('aria-label')||'').toLowerCase();
+          for (const k of keys) {
+            if (ph.includes(k) || id.includes(k) || al.includes(k)) return (el.value||'').trim();
+          }
+        }
+        return '';
+      };
+
+      const payload = {
+        user_name: getBy(['user_name','name','fullname','full_name','your name']),
+        user_email: getBy(['user_email','email','your email'],'email'),
+        message: getBy(['message','body','comment','description'])
+      };
+
+      console.info('WPS form payload →', payload);
+      status.style.color='black'; status.textContent='Sending...';
+
+      try {
+        const data = new URLSearchParams();
+        data.append('user_name', payload.user_name);
+        data.append('user_email', payload.user_email);
+        data.append('message', payload.message);
+
+        const res = await fetch(SCRIPT_URL, {
+          method: 'POST',
+          headers: {'Content-Type':'application/x-www-form-urlencoded'},
+          body: data.toString()
+        });
+
+        const text = await res.text();
+        let json = null;
+        try { json = JSON.parse(text); } catch(e){}
+
+        if (res.ok && json && json.status === 'success') {
+          status.style.color='green';
+          status.textContent='Thanks — we received your message.';
+          form.reset();
+        } else {
+          status.style.color='red';
+          status.textContent='Error sending message.';
+          console.error('Apps Script resp', res.status, text);
+        }
+      } catch (err) {
+        status.style.color='red';
+        status.textContent='Network error.';
+        console.error('Network err', err);
+      }
+    });
+  };
+  tryOnce();
+})();
+</script>
